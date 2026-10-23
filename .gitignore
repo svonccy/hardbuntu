@@ -15,3 +15,7 @@ local.properties
 /captures
 .externalNativeBuild
 .cxx
+
+# Supabase CLI
+supabase/.temp/
+supabase/.branches/
