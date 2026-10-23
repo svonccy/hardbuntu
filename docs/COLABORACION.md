@@ -2,6 +2,8 @@
 
 Bienvenido a **Hardbuntu**. Esta guía detalla cómo configurar tu entorno local de desarrollo, las herramientas de IA (Antigravity & MCPs), la conexión con Supabase y las directrices de contribución con Git.
 
+> 📖 **Cheat Sheet:** Para una lista rápida de comandos de terminal frecuentes (Android, Supabase y Git), consulta **[Comandos Útiles](COMANDOS_UTILES.md)**.
+
 ---
 
 ## 📌 Índice
