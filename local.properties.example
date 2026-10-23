@@ -1,0 +1,10 @@
+## Configuración Local del Proyecto Hardbuntu
+# Copia este archivo como "local.properties" en la raíz del proyecto y completa con tus valores.
+# ADVERTENCIA: NUNCA subas "local.properties" al repositorio de Git.
+
+# Ruta local al Android SDK en tu equipo
+sdk.dir=C\:\\Users\\TU_USUARIO\\AppData\\Local\\Android\\Sdk
+
+# Credenciales de Supabase (Backend)
+SUPABASE_URL=https://pwvttubqvhcyzgwaymdn.supabase.co
+SUPABASE_ANON_KEY=sb_publishable_B-eqzaLvDgCgAKKUJCL7ag_pPCg3Vxi

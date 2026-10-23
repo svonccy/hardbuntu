@@ -86,20 +86,27 @@ com.hardbuntu.app
 
 ## ⚙️ Configuración y Requisitos
 
+Para instrucciones detalladas de configuración de entorno, conexión con Supabase, configuración de MCPs para IA y convenciones de Git, consulta la **[Guía de Colaboración](docs/COLABORACION.md)**.
+
 ### Requisitos Previos
 * **Android Studio:** Ladybug (2024.2+) o superior con JDK 17 o 21.
 * **Android SDK:**
   * `minSdk`: 26 (Android 8.0 Oreo)
   * `targetSdk` / `compileSdk`: 37 (Android 15+)
-* Cuenta de **Supabase** activa con un proyecto configurado.
+* Cuenta de **Supabase** activa con acceso al proyecto del equipo.
 
-### Variables de Configuración Segura
-Para conectar con Supabase sin exponer credenciales en el repositorio de Git, configurar en `local.properties`:
+### Variables de Configuración Segura (`local.properties`)
+Copia la plantilla [`local.properties.example`](local.properties.example) como `local.properties`:
+
+```bash
+cp local.properties.example local.properties
+```
 
 ```properties
-SUPABASE_URL=https://tu-proyecto.supabase.co
-SUPABASE_ANON_KEY=tu-anon-key-aqui
+SUPABASE_URL=https://pwvttubqvhcyzgwaymdn.supabase.co
+SUPABASE_ANON_KEY=tu-publishable-o-anon-key-aqui
 ```
+
 
 ---
 
