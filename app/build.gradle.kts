@@ -73,6 +73,9 @@ dependencies {
     // Kotlinx Serialization
     implementation(libs.kotlinx.serialization.json)
 
+    // DataStore (Persistencia local del carrito)
+    implementation(libs.androidx.datastore.preferences)
+
     // Coil 3 (Image Loading)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.ktor3)

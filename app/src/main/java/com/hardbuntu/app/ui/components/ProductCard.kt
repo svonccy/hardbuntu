@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddShoppingCart
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -47,7 +49,9 @@ fun ProductCard(
     product: Product,
     onProductClick: () -> Unit,
     onAddToCartClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isFavorite: Boolean = false,
+    onFavoriteClick: (() -> Unit)? = null
 ) {
     val inStock = product.stock > 0
     val isLowStock = product.stock in 1..4
@@ -137,6 +141,27 @@ fun ProductCard(
                         fontSize = 10.sp,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
+                }
+
+                // Favorito en esquina superior derecha
+                if (onFavoriteClick != null) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
+                            .clickable(onClick = onFavoriteClick)
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = if (isFavorite) "Quitar de favoritos" else "Agregar a favoritos",
+                            tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
 
@@ -231,7 +256,7 @@ fun ProductCard(
                         )
                     }
                     Text(
-                        text = "inc. IGV (18%)",
+                        text = if (product.priceTiers.isNotEmpty()) "inc. IGV · Precio por mayor" else "inc. IGV (18%)",
                         style = MaterialTheme.typography.labelSmall,
                         fontSize = 9.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)

@@ -13,6 +13,7 @@ ktor = "3.1.1"
 coil = "3.1.0"
 navigationCompose = "2.8.8"
 serialization = "1.8.0"
+datastore = "1.1.7"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -39,6 +40,9 @@ androidx-navigation-compose = { module = "androidx.navigation:navigation-compose
 
 # Kotlinx Serialization
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+
+# DataStore (Persistencia local del carrito)
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 
 # Coil 3 (Image Loading)
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }

@@ -1,14 +1,18 @@
 -- Migración Inicial: Esquema de Catálogo Ferretero para Hardbuntu
+-- Refleja el esquema real del proyecto Supabase (columnas icon, specs, image_url).
 -- Cumple con las directrices de idempotencia para permitir ejecuciones repetidas sin errores.
 
 -- 1. Función utilitaria para actualización automática de timestamps
 create or replace function public.handle_updated_at()
-returns trigger as $$
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
 begin
     new.updated_at = now();
     return new;
 end;
-$$ language plpgsql;
+$$;
 
 -- 2. Tabla de Categorías Ferreteras
 create table if not exists public.categories (
@@ -16,21 +20,13 @@ create table if not exists public.categories (
     name text not null,
     slug text not null unique,
     description text,
-    icon_name text,
-    image_url text,
-    display_order integer not null default 0,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
+    icon text,
+    created_at timestamptz not null default now()
 );
 
--- Trigger idempotente para updated_at en categories
-drop trigger if exists tr_categories_updated_at on public.categories;
-create trigger tr_categories_updated_at
-    before update on public.categories
-    for each row
-    execute function public.handle_updated_at();
-
 -- 3. Tabla de Productos Ferreteros
+-- "price" es el precio de venta al público con IGV incluido.
+-- "specs" guarda pares clave/valor de texto (la app los decodifica como Map<String, String>).
 create table if not exists public.products (
     id uuid primary key default gen_random_uuid(),
     category_id uuid references public.categories(id) on delete set null,
@@ -42,10 +38,9 @@ create table if not exists public.products (
     price numeric(12, 2) not null check (price >= 0),
     stock integer not null default 0 check (stock >= 0),
     unit text not null default 'unidad',
-    technical_specs jsonb not null default '{}'::jsonb,
-    images text[] not null default '{}'::text[],
+    specs jsonb not null default '{}'::jsonb,
+    image_url text,
     is_active boolean not null default true,
-    is_featured boolean not null default false,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
@@ -61,8 +56,7 @@ create trigger tr_products_updated_at
 create index if not exists idx_products_category_id on public.products(category_id);
 create index if not exists idx_products_brand on public.products(brand);
 create index if not exists idx_products_is_active on public.products(is_active) where is_active = true;
-create index if not exists idx_products_technical_specs on public.products using gin (technical_specs);
-create index if not exists idx_categories_display_order on public.categories(display_order asc);
+create index if not exists idx_products_specs on public.products using gin (specs);
 
 -- 5. Seguridad: Row Level Security (RLS)
 alter table public.categories enable row level security;

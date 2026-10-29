@@ -3,6 +3,7 @@ package com.hardbuntu.app.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,17 +28,20 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -49,8 +53,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
@@ -70,6 +72,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -79,6 +82,15 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.hardbuntu.app.data.model.CartItem
+import com.hardbuntu.app.data.model.StoreSettings
+import com.hardbuntu.app.ui.components.CheckoutSheet
+import com.hardbuntu.app.ui.viewmodel.StoreUiState
+import com.hardbuntu.app.util.QuoteData
+import com.hardbuntu.app.util.QuoteShare
+import com.hardbuntu.app.ui.components.FeedbackHost
+import com.hardbuntu.app.ui.components.FeedbackType
+import com.hardbuntu.app.ui.components.OrderSuccessDialog
+import com.hardbuntu.app.ui.components.showFeedback
 import com.hardbuntu.app.ui.viewmodel.StoreViewModel
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -89,6 +101,7 @@ fun CartScreen(
     viewModel: StoreViewModel,
     onNavigateBack: () -> Unit,
     onNavigateHome: () -> Unit,
+    onNavigateToOrders: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -96,87 +109,50 @@ fun CartScreen(
     val scope = rememberCoroutineScope()
 
     var showCheckoutSheet by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    // Formulario de Checkout
-    var customerName by remember(uiState.currentUser) {
-        mutableStateOf(uiState.currentUser?.email?.substringBefore("@")?.replaceFirstChar { it.uppercase() } ?: "")
-    }
-    var customerPhone by remember { mutableStateOf("999888777") }
-    var customerAddress by remember { mutableStateOf("") }
-    var orderNotes by remember { mutableStateOf("") }
+    var showQuoteMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val settings = uiState.storeSettings
 
     // Diálogo de Confirmación de Pedido Exitoso
-    if (uiState.checkoutSuccessOrder != null) {
-        val order = uiState.checkoutSuccessOrder!!
-        AlertDialog(
-            onDismissRequest = {
+    uiState.checkoutSuccessOrder?.let { order ->
+        val paymentMethod = uiState.paymentMethodByCode(order.paymentMethod)
+        OrderSuccessDialog(
+            order = order,
+            canViewOrders = uiState.currentUser != null,
+            paymentName = paymentMethod?.name,
+            paymentInstructions = paymentMethod?.instructions,
+            onViewOrders = {
+                viewModel.dismissCheckoutSuccessDialog()
+                onNavigateToOrders()
+            },
+            onContinueShopping = {
                 viewModel.dismissCheckoutSuccessDialog()
                 onNavigateHome()
             },
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(52.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = "¡Pedido Registrado con Éxito!",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        text = "Tu orden ha sido sincronizada en la base de datos de Supabase.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = "Código: #${order.id?.take(8)?.uppercase(Locale.getDefault()) ?: ""}",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = "Cliente: ${order.customerName}", style = MaterialTheme.typography.bodySmall)
-                            Text(
-                                text = String.format(Locale.US, "Total: S/. %.2f (inc. IGV 18%%)", order.total),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(text = "Entrega: ${order.deliveryAddress}", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.dismissCheckoutSuccessDialog()
-                        onNavigateHome()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Volver a Comprar")
-                }
+            onDismiss = {
+                viewModel.dismissCheckoutSuccessDialog()
+                onNavigateHome()
             }
         )
     }
 
+    // Quitar un producto con opción de deshacer
+    fun removeWithUndo(item: CartItem) {
+        viewModel.removeFromCart(item.product.id)
+        scope.launch {
+            val result = snackbarHostState.showFeedback(
+                message = "Quitaste ${item.product.name} del carrito",
+                type = FeedbackType.INFO,
+                actionLabel = "Deshacer"
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.addToCart(item.product, item.quantity)
+            }
+        }
+    }
+
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { FeedbackHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -203,6 +179,47 @@ fun CartScreen(
                             contentDescription = "Volver",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
+                    }
+                },
+                actions = {
+                    if (uiState.cartItems.isNotEmpty()) {
+                        Box {
+                            IconButton(onClick = { showQuoteMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Share,
+                                    contentDescription = "Compartir cotización",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showQuoteMenu,
+                                onDismissRequest = { showQuoteMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Enviar como texto (WhatsApp)") },
+                                    leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null) },
+                                    onClick = {
+                                        showQuoteMenu = false
+                                        QuoteShare.shareText(context, buildQuote(uiState, settings))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Generar PDF") },
+                                    leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, contentDescription = null) },
+                                    onClick = {
+                                        showQuoteMenu = false
+                                        QuoteShare.sharePdf(context, buildQuote(uiState, settings)).onFailure {
+                                            scope.launch {
+                                                snackbarHostState.showFeedback(
+                                                    "No se pudo generar el PDF de la cotización",
+                                                    FeedbackType.ERROR
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -353,18 +370,7 @@ fun CartScreen(
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = { value ->
                             if (value == SwipeToDismissBoxValue.EndToStart) {
-                                val itemDeleted = cartItem
-                                viewModel.removeFromCart(cartItem.product.id)
-                                scope.launch {
-                                    val result = snackbarHostState.showSnackbar(
-                                        message = "Eliminado: ${itemDeleted.product.name}",
-                                        actionLabel = "Deshacer",
-                                        duration = SnackbarDuration.Short
-                                    )
-                                    if (result == SnackbarResult.ActionPerformed) {
-                                        viewModel.addToCart(itemDeleted.product, itemDeleted.quantity)
-                                    }
-                                }
+                                removeWithUndo(cartItem)
                                 true
                             } else false
                         }
@@ -394,20 +400,7 @@ fun CartScreen(
                             item = cartItem,
                             onIncrement = { viewModel.incrementQuantity(cartItem.product.id) },
                             onDecrement = { viewModel.decrementQuantity(cartItem.product.id) },
-                            onRemove = {
-                                val itemDeleted = cartItem
-                                viewModel.removeFromCart(cartItem.product.id)
-                                scope.launch {
-                                    val result = snackbarHostState.showSnackbar(
-                                        message = "Eliminado: ${itemDeleted.product.name}",
-                                        actionLabel = "Deshacer",
-                                        duration = SnackbarDuration.Short
-                                    )
-                                    if (result == SnackbarResult.ActionPerformed) {
-                                        viewModel.addToCart(itemDeleted.product, itemDeleted.quantity)
-                                    }
-                                }
-                            }
+                            onRemove = { removeWithUndo(cartItem) }
                         )
                     }
                 }
@@ -496,185 +489,39 @@ fun CartScreen(
         }
     }
 
-    // ModalBottomSheet para Checkout y Registro de Pedido
+    // Panel de pago: entrega o recojo, contacto, forma de pago y resumen
     if (showCheckoutSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showCheckoutSheet = false },
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .navigationBarsPadding()
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Outlined.LocalShipping,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Datos de Despacho y Facturación",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                OutlinedTextField(
-                    value = customerName,
-                    onValueChange = { customerName = it },
-                    label = { Text("Nombre Completo / Razón Social *") },
-                    leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+        CheckoutSheet(
+            state = uiState,
+            onDismiss = { showCheckoutSheet = false },
+            onSubmit = { request, onSuccess, onError ->
+                viewModel.checkout(
+                    customerName = request.name,
+                    customerPhone = request.phone,
+                    customerAddress = request.address,
+                    fulfillmentType = request.fulfillmentType,
+                    paymentMethod = request.paymentMethod,
+                    customerEmail = uiState.currentUser?.email,
+                    notes = request.notes,
+                    saveAddress = request.saveAddress,
+                    onSuccess = { onSuccess() },
+                    onError = onError
                 )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = customerPhone,
-                    onValueChange = { customerPhone = it },
-                    label = { Text("Teléfono de Contacto (WhatsApp) *") },
-                    leadingIcon = { Icon(Icons.Outlined.Phone, contentDescription = null) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = customerAddress,
-                    onValueChange = { customerAddress = it },
-                    label = { Text("Dirección de Entrega / Obra *") },
-                    leadingIcon = { Icon(Icons.Outlined.Place, contentDescription = null) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = orderNotes,
-                    onValueChange = { orderNotes = it },
-                    label = { Text("Instrucciones de Entrega (Opcional)") },
-                    leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null) },
-                    maxLines = 2,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Resumen Rápido dentro del BottomSheet
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Monto Total (IGV inc.):",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = String.format(Locale.US, "S/. %.2f", uiState.total),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = {
-                        if (customerName.isBlank() || customerPhone.isBlank() || customerAddress.isBlank()) {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Por favor completa los campos requeridos (*)")
-                            }
-                            return@Button
-                        }
-
-                        viewModel.checkout(
-                            customerName = customerName,
-                            customerPhone = customerPhone,
-                            customerAddress = customerAddress,
-                            notes = orderNotes.ifBlank { null },
-                            onSuccess = {
-                                showCheckoutSheet = false
-                            },
-                            onError = { error ->
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("Error al registrar pedido: $error")
-                                }
-                            }
-                        )
-                    },
-                    enabled = !uiState.isCheckingOut,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                ) {
-                    if (uiState.isCheckingOut) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    } else {
-                        Text(
-                            text = "Confirmar y Enviar Pedido",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
             }
-        }
+        )
     }
 }
+
+/** Arma los datos de la cotización a partir del carrito y los datos del local. */
+private fun buildQuote(state: StoreUiState, settings: StoreSettings) = QuoteData(
+    storeName = settings.storeName,
+    storeAddress = settings.address,
+    storePhone = settings.phone ?: settings.whatsapp,
+    items = state.cartItems,
+    subtotal = state.subtotal,
+    igv = state.igv,
+    total = state.total
+)
 
 @Composable
 private fun CartItemRowM3(
@@ -764,10 +611,20 @@ private fun CartItemRowM3(
 
                     IconButton(
                         onClick = onIncrement,
+                        enabled = item.quantity < item.product.stock,
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Más", modifier = Modifier.size(16.dp))
                     }
+                }
+
+                if (item.quantity >= item.product.stock) {
+                    Text(
+                        text = "Máximo disponible en stock",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
             }
 

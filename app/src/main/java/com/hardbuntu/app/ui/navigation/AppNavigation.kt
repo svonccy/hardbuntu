@@ -1,6 +1,13 @@
 package com.hardbuntu.app.ui.navigation
 
 import androidx.compose.animation.Crossfade
+import com.hardbuntu.app.ui.screens.StoreInfoScreen
+import com.hardbuntu.app.ui.screens.ResetPasswordScreen
+import com.hardbuntu.app.ui.screens.EditProfileScreen
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.compose.runtime.LaunchedEffect
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -25,6 +32,7 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -39,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,18 +79,39 @@ data class MainShellRoute(val initialTab: Int = 0)
 @Serializable
 data class DetailRoute(val productId: String)
 
+@Serializable
+data object ResetPasswordRoute
+
+@Serializable
+data object EditProfileRoute
+
+@Serializable
+data object StoreInfoRoute
+
 @Composable
 fun AppNavigation(
     navController: NavHostController = rememberNavController(),
-    storeViewModel: StoreViewModel = viewModel(),
+    storeViewModel: StoreViewModel = viewModel(factory = StoreViewModel.Factory),
     modifier: Modifier = Modifier
 ) {
     val uiState by storeViewModel.uiState.collectAsStateWithLifecycle()
-    val isUserOrGuest = uiState.currentUser != null || uiState.isGuest
+
+    // Esperar a que Supabase restaure la sesión guardada antes de elegir la pantalla inicial
+    if (!uiState.authReady) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        }
+        return
+    }
+
+    // Se calcula una sola vez: los cambios posteriores de sesión se manejan navegando
+    val startDestination: Any = remember {
+        if (uiState.currentUser != null || uiState.isGuest) MainShellRoute(0) else LoginRoute
+    }
 
     NavHost(
         navController = navController,
-        startDestination = if (isUserOrGuest) MainShellRoute(0) else LoginRoute,
+        startDestination = startDestination,
         modifier = modifier
     ) {
         composable<LoginRoute> {
@@ -104,6 +134,36 @@ fun AppNavigation(
             )
         }
 
+        composable<ResetPasswordRoute> {
+            // Salir sin cambiar la contraseña también cierra el modo de recuperación
+            BackHandler {
+                storeViewModel.dismissPasswordRecovery()
+                navController.popBackStack()
+            }
+            ResetPasswordScreen(
+                viewModel = storeViewModel,
+                onDone = {
+                    navController.navigate(MainShellRoute(0)) {
+                        popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable<EditProfileRoute> {
+            EditProfileScreen(
+                viewModel = storeViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable<StoreInfoRoute> {
+            StoreInfoScreen(
+                viewModel = storeViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
         composable<DetailRoute> { backStackEntry ->
             val route = backStackEntry.toRoute<DetailRoute>()
             ProductDetailScreen(
@@ -118,6 +178,23 @@ fun AppNavigation(
                     }
                 }
             )
+        }
+    }
+
+    // El usuario abrió el enlace de "recuperar contraseña" del correo: pedir la nueva contraseña
+    LaunchedEffect(uiState.passwordRecovery) {
+        if (uiState.passwordRecovery) {
+            navController.navigate(ResetPasswordRoute) { launchSingleTop = true }
+        }
+    }
+
+    // Cuenta confirmada desde el correo: la sesión llega estando en el login, así que se entra a la tienda
+    LaunchedEffect(uiState.currentUser?.id) {
+        val onLogin = navController.currentBackStackEntry?.destination?.hasRoute<LoginRoute>() == true
+        if (uiState.currentUser != null && !uiState.passwordRecovery && onLogin) {
+            navController.navigate(MainShellRoute(0)) {
+                popUpTo<LoginRoute> { inclusive = true }
+            }
         }
     }
 }
@@ -407,10 +484,16 @@ private fun TabContent(
                 },
                 onNavigateHome = {
                     onTabChange(0)
+                },
+                onNavigateToOrders = {
+                    onTabChange(3)
                 }
             )
             3 -> ProfileScreen(
                 viewModel = storeViewModel,
+                onNavigateToEditProfile = { navController.navigate(EditProfileRoute) },
+                onNavigateToStoreInfo = { navController.navigate(StoreInfoRoute) },
+                onNavigateToCart = { onTabChange(2) },
                 onNavigateToLogin = {
                     navController.navigate(LoginRoute) {
                         popUpTo<MainShellRoute> { inclusive = true }

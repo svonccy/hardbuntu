@@ -41,8 +41,11 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import com.hardbuntu.app.ui.components.FeedbackHost
+import com.hardbuntu.app.ui.components.FeedbackType
+import com.hardbuntu.app.ui.components.showFeedback
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -65,6 +68,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.Sell
+import androidx.compose.ui.graphics.Color
+import com.hardbuntu.app.data.model.Product
 import com.hardbuntu.app.ui.components.SpecTable
 import com.hardbuntu.app.ui.viewmodel.StoreViewModel
 import kotlinx.coroutines.launch
@@ -89,7 +97,7 @@ fun ProductDetailScreen(
 
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { FeedbackHost(snackbarHostState) },
         topBar = {
             MediumTopAppBar(
                 title = {
@@ -111,6 +119,16 @@ fun ProductDetailScreen(
                     }
                 },
                 actions = {
+                    if (product != null) {
+                        val isFavorite = uiState.isFavorite(product.id)
+                        IconButton(onClick = { viewModel.toggleFavorite(product.id) }) {
+                            Icon(
+                                imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = if (isFavorite) "Quitar de favoritos" else "Agregar a favoritos",
+                                tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                     IconButton(onClick = onNavigateToCart) {
                         BadgedBox(
                             badge = {
@@ -141,8 +159,12 @@ fun ProductDetailScreen(
         },
         bottomBar = {
             if (product != null) {
-                val inStock = product.stock > 0
-                val effectiveMax = product.stock.coerceAtLeast(1)
+                // Unidades que aún se pueden agregar (stock menos lo que ya está en el carrito)
+                val available = (product.stock - uiState.quantityInCart(product.id)).coerceAtLeast(0)
+                val inStock = available > 0
+                // Con precios por mayor, el precio unitario depende de la cantidad total en el carrito
+                val unitPriceNow = product.priceFor(uiState.quantityInCart(product.id) + quantity)
+                val effectiveMax = available.coerceAtLeast(1)
 
                 Surface(
                     shadowElevation = 12.dp,
@@ -202,12 +224,12 @@ fun ProductDetailScreen(
                             // Subtotal calculado y botón de compra
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = "Total a pagar",
+                                    text = if (unitPriceNow < product.price) "Total (precio por mayor)" else "Total a pagar",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = String.format(Locale.US, "S/. %.2f", product.price * quantity),
+                                    text = String.format(Locale.US, "S/. %.2f", unitPriceNow * quantity),
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = MaterialTheme.colorScheme.primary
@@ -219,9 +241,23 @@ fun ProductDetailScreen(
 
                         Button(
                             onClick = {
-                                viewModel.addToCart(product, quantity)
+                                val addedQuantity = quantity.coerceAtMost(available)
+                                val added = viewModel.addToCart(product, addedQuantity)
+                                quantity = 1
                                 scope.launch {
-                                    snackbarHostState.showSnackbar("¡$quantity x ${product.name} añadido al carrito!")
+                                    if (added) {
+                                        val result = snackbarHostState.showFeedback(
+                                            message = "$addedQuantity x ${product.name} se agregó al carrito",
+                                            type = FeedbackType.SUCCESS,
+                                            actionLabel = "Ver carrito"
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) onNavigateToCart()
+                                    } else {
+                                        snackbarHostState.showFeedback(
+                                            message = "No hay más stock disponible de este producto",
+                                            type = FeedbackType.WARNING
+                                        )
+                                    }
                                 }
                             },
                             enabled = inStock,
@@ -241,7 +277,11 @@ fun ProductDetailScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (inStock) "Agregar al Carrito" else "Agotado Temporalmente",
+                                text = when {
+                                    inStock -> "Agregar al Carrito"
+                                    product.stock > 0 -> "Stock completo en tu carrito"
+                                    else -> "Agotado Temporalmente"
+                                },
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -332,7 +372,7 @@ fun ProductDetailScreen(
                         else MaterialTheme.colorScheme.errorContainer
                     ) {
                         Text(
-                            text = if (product.stock > 0) "● ${product.stock} ${product.unit}s disponibles" else "● Agotado",
+                            text = if (product.stock > 0) "● ${product.stock} ${pluralizeUnit(product.unit, product.stock)} disponibles" else "● Agotado",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = if (product.stock > 0) MaterialTheme.colorScheme.secondary
@@ -437,6 +477,14 @@ fun ProductDetailScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
+                if (product.priceTiers.isNotEmpty()) {
+                    PriceTiersCard(
+                        product = product,
+                        currentQuantity = uiState.quantityInCart(product.id) + quantity
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+
                 // Encabezado de Especificaciones Técnicas
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -465,5 +513,80 @@ fun ProductDetailScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
+    }
+}
+
+// Plural en español: vocal + "s" (caja → cajas), consonante + "es" (unidad → unidades)
+private fun pluralizeUnit(unit: String, count: Int): String {
+    if (count == 1 || unit.isBlank()) return unit
+    return if (unit.last().lowercaseChar() in "aeiouáéíóú") "${unit}s" else "${unit}es"
+}
+
+/** Tabla de precios por mayor; resalta el tramo que aplica a la cantidad actual. */
+@Composable
+private fun PriceTiersCard(product: Product, currentQuantity: Int) {
+    val tiers = product.priceTiers.sortedBy { it.minQuantity }
+    val activeMinimum = tiers.filter { it.minQuantity <= currentQuantity }.maxByOrNull { it.minQuantity }?.minQuantity
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.Sell,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Precios por mayor",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                TierRow(
+                    label = "Desde 1 ${product.unit}",
+                    price = product.price,
+                    active = activeMinimum == null
+                )
+                tiers.forEach { tier ->
+                    TierRow(
+                        label = "Desde ${tier.minQuantity} ${pluralizeUnit(product.unit, tier.minQuantity)}",
+                        price = tier.unitPrice,
+                        active = tier.minQuantity == activeMinimum
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TierRow(label: String, price: Double, active: Boolean) {
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+        )
+        Text(
+            text = String.format(Locale.US, "S/. %.2f c/u", price),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+        )
     }
 }

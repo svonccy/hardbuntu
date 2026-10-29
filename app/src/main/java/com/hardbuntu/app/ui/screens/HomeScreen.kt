@@ -49,8 +49,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import com.hardbuntu.app.ui.components.FeedbackHost
+import com.hardbuntu.app.ui.components.FeedbackType
+import com.hardbuntu.app.ui.components.showFeedback
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -58,16 +62,23 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.Tune
 import com.hardbuntu.app.ui.components.CategoryChip
+import com.hardbuntu.app.ui.components.FilterSheet
 import com.hardbuntu.app.ui.components.ProductCard
 import com.hardbuntu.app.ui.components.ProductCardSkeleton
 import com.hardbuntu.app.ui.viewmodel.StoreViewModel
@@ -84,9 +95,23 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    var showFilterSheet by remember { mutableStateOf(false) }
+
+    if (showFilterSheet) {
+        FilterSheet(
+            state = uiState,
+            onSortChange = viewModel::setSort,
+            onToggleBrand = viewModel::toggleBrand,
+            onPriceRangeChange = viewModel::setPriceRange,
+            onOnlyInStockChange = viewModel::setOnlyInStock,
+            onOnlyFavoritesChange = viewModel::setOnlyFavorites,
+            onClear = viewModel::clearFilters,
+            onDismiss = { showFilterSheet = false }
+        )
+    }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { FeedbackHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -124,6 +149,13 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { viewModel.setOnlyFavorites(!uiState.onlyFavorites) }) {
+                        Icon(
+                            imageVector = if (uiState.onlyFavorites) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = if (uiState.onlyFavorites) "Mostrar todos los productos" else "Ver mis favoritos",
+                            tint = if (uiState.onlyFavorites) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                     IconButton(onClick = onNavigateToCart) {
                         BadgedBox(
                             badge = {
@@ -160,7 +192,13 @@ fun HomeScreen(
                 .padding(innerPadding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Buscador Estilizado M3
+                // Buscador + botón de filtros
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
                 OutlinedTextField(
                     value = uiState.searchQuery,
                     onValueChange = viewModel::onSearchQueryChanged,
@@ -199,10 +237,31 @@ fun HomeScreen(
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
                     ),
                     shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                    modifier = Modifier.weight(1f)
                 )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                BadgedBox(
+                    badge = {
+                        if (uiState.activeFilterCount > 0) {
+                            Badge(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ) {
+                                Text(uiState.activeFilterCount.toString())
+                            }
+                        }
+                    }
+                ) {
+                    FilledTonalIconButton(
+                        onClick = { showFilterSheet = true },
+                        modifier = Modifier.size(52.dp)
+                    ) {
+                        Icon(Icons.Outlined.Tune, contentDescription = "Filtros y orden")
+                    }
+                }
+                }
 
                 // Riel horizontal de Categorías con iconos y contadores
                 LazyRow(
@@ -280,7 +339,7 @@ fun HomeScreen(
                                     )
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Text(
-                                        text = "Problema al conectar con Supabase",
+                                        text = "No pudimos cargar el catálogo",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
@@ -288,8 +347,9 @@ fun HomeScreen(
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = uiState.errorMessage ?: "",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.error
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Button(
@@ -347,6 +407,7 @@ fun HomeScreen(
                                         onClick = {
                                             viewModel.selectCategory(null)
                                             viewModel.onSearchQueryChanged("")
+                                            viewModel.clearFilters()
                                         },
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
@@ -370,11 +431,25 @@ fun HomeScreen(
                                 items(uiState.filteredProducts, key = { it.id }) { product ->
                                     ProductCard(
                                         product = product,
+                                        isFavorite = uiState.isFavorite(product.id),
+                                        onFavoriteClick = { viewModel.toggleFavorite(product.id) },
                                         onProductClick = { onNavigateToDetail(product.id) },
                                         onAddToCartClick = {
-                                            viewModel.addToCart(product)
+                                            val added = viewModel.addToCart(product)
                                             scope.launch {
-                                                snackbarHostState.showSnackbar("¡${product.name} agregado al carrito!")
+                                                if (added) {
+                                                    val result = snackbarHostState.showFeedback(
+                                                        message = "${product.name} se agregó al carrito",
+                                                        type = FeedbackType.SUCCESS,
+                                                        actionLabel = "Ver carrito"
+                                                    )
+                                                    if (result == SnackbarResult.ActionPerformed) onNavigateToCart()
+                                                } else {
+                                                    snackbarHostState.showFeedback(
+                                                        message = "Ya tienes en el carrito todo el stock disponible de ${product.name}",
+                                                        type = FeedbackType.WARNING
+                                                    )
+                                                }
                                             }
                                         }
                                     )
