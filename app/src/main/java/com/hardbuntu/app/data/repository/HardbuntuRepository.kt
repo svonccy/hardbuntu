@@ -6,6 +6,9 @@ import com.hardbuntu.app.data.model.OrderItem
 import com.hardbuntu.app.data.model.Product
 import com.hardbuntu.app.data.remote.SupabaseClient
 import io.github.jan.supabase.SupabaseClient as SClient
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.builtin.Email
+import io.github.jan.supabase.auth.user.UserInfo
 import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,6 +16,36 @@ import kotlinx.coroutines.withContext
 class HardbuntuRepository(
     private val client: SClient = SupabaseClient.instance
 ) {
+    suspend fun signIn(email: String, password: String): Result<UserInfo> = withContext(Dispatchers.IO) {
+        runCatching {
+            client.auth.signInWith(Email) {
+                this.email = email
+                this.password = password
+            }
+            client.auth.currentUserOrNull() ?: throw IllegalStateException("No se pudo obtener el usuario autenticado")
+        }
+    }
+
+    suspend fun signUp(email: String, password: String): Result<UserInfo> = withContext(Dispatchers.IO) {
+        runCatching {
+            client.auth.signUpWith(Email) {
+                this.email = email
+                this.password = password
+            }
+            client.auth.currentUserOrNull() ?: throw IllegalStateException("Registro completado. Revisa tu correo de confirmación.")
+        }
+    }
+
+    suspend fun signOut(): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            client.auth.signOut()
+        }
+    }
+
+    fun getCurrentUser(): UserInfo? {
+        return client.auth.currentUserOrNull()
+    }
+
     suspend fun getCategories(): Result<List<Category>> = withContext(Dispatchers.IO) {
         runCatching {
             client.from("categories")
@@ -55,6 +88,14 @@ class HardbuntuRepository(
             }
 
             insertedOrder
+        }
+    }
+
+    suspend fun getOrders(): Result<List<Order>> = withContext(Dispatchers.IO) {
+        runCatching {
+            client.from("orders")
+                .select()
+                .decodeList<Order>()
         }
     }
 }

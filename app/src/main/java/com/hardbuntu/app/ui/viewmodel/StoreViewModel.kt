@@ -8,6 +8,7 @@ import com.hardbuntu.app.data.model.Order
 import com.hardbuntu.app.data.model.OrderItem
 import com.hardbuntu.app.data.model.Product
 import com.hardbuntu.app.data.repository.HardbuntuRepository
+import io.github.jan.supabase.auth.user.UserInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,8 +24,14 @@ data class StoreUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val cartItems: List<CartItem> = emptyList(),
+    val recentOrders: List<Order> = emptyList(),
     val isCheckingOut: Boolean = false,
-    val checkoutSuccessOrder: Order? = null
+    val checkoutSuccessOrder: Order? = null,
+    // Estado de Autenticación Supabase
+    val currentUser: UserInfo? = null,
+    val isGuest: Boolean = false,
+    val authLoading: Boolean = false,
+    val authError: String? = null
 ) {
     val filteredProducts: List<Product>
         get() = products.filter { product ->
@@ -58,7 +65,64 @@ class StoreViewModel(
     val uiState: StateFlow<StoreUiState> = _uiState.asStateFlow()
 
     init {
+        val existingUser = repository.getCurrentUser()
+        _uiState.update { it.copy(currentUser = existingUser) }
         loadInitialData()
+    }
+
+    // --- Métodos de Autenticación Supabase ---
+
+    fun login(email: String, password: String, onSuccess: () -> Unit = {}) {
+        if (email.isBlank() || password.isBlank()) {
+            _uiState.update { it.copy(authError = "Ingresa tu correo y contraseña") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(authLoading = true, authError = null) }
+            val result = repository.signIn(email.trim(), password)
+            result.onSuccess { user ->
+                _uiState.update { it.copy(currentUser = user, isGuest = false, authLoading = false, authError = null) }
+                onSuccess()
+            }.onFailure { err ->
+                _uiState.update { it.copy(authLoading = false, authError = err.localizedMessage ?: "Credenciales inválidas") }
+            }
+        }
+    }
+
+    fun register(email: String, password: String, onSuccess: () -> Unit = {}) {
+        if (email.isBlank() || password.isBlank()) {
+            _uiState.update { it.copy(authError = "Ingresa tu correo y contraseña") }
+            return
+        }
+        if (password.length < 6) {
+            _uiState.update { it.copy(authError = "La contraseña debe tener al menos 6 caracteres") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(authLoading = true, authError = null) }
+            val result = repository.signUp(email.trim(), password)
+            result.onSuccess { user ->
+                _uiState.update { it.copy(currentUser = user, isGuest = false, authLoading = false, authError = null) }
+                onSuccess()
+            }.onFailure { err ->
+                _uiState.update { it.copy(authLoading = false, authError = err.localizedMessage ?: "Error en el registro") }
+            }
+        }
+    }
+
+    fun continueAsGuest() {
+        _uiState.update { it.copy(isGuest = true, authError = null) }
+    }
+
+    fun logout() {
+        viewModelScope.launch {
+            repository.signOut()
+            _uiState.update { it.copy(currentUser = null, isGuest = false) }
+        }
+    }
+
+    fun clearAuthError() {
+        _uiState.update { it.copy(authError = null) }
     }
 
     fun loadInitialData() {
@@ -67,12 +131,14 @@ class StoreViewModel(
 
             val categoriesResult = repository.getCategories()
             val productsResult = repository.getProducts()
+            val ordersResult = repository.getOrders()
 
             if (categoriesResult.isSuccess && productsResult.isSuccess) {
                 _uiState.update {
                     it.copy(
                         categories = categoriesResult.getOrDefault(emptyList()),
                         products = productsResult.getOrDefault(emptyList()),
+                        recentOrders = ordersResult.getOrDefault(emptyList()),
                         isLoading = false,
                         errorMessage = null
                     )
@@ -190,6 +256,7 @@ class StoreViewModel(
                     it.copy(
                         isCheckingOut = false,
                         cartItems = emptyList(),
+                        recentOrders = listOf(createdOrder) + it.recentOrders,
                         checkoutSuccessOrder = createdOrder
                     )
                 }
